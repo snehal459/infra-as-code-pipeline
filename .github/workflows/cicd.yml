@@ -126,12 +126,27 @@ jobs:
 
 
 # =========================
+# APPROVAL GATE
+# =========================
+  approve-prod:
+    name: Approve Production Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+    environment: production
+
+    steps:
+      - name: Awaiting approval
+        run: echo "Approved for production deployment"
+
+
+# =========================
 # DEPLOY TO ECS (PRODUCTION)
 # =========================
   deploy-prod:
     name: Deploy Production
     runs-on: ubuntu-latest
-    needs: build
+    needs: approve-prod
     if: github.event_name == 'push'
 
     steps:

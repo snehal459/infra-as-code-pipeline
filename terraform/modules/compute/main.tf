@@ -76,10 +76,11 @@ resource "aws_ecs_task_definition" "task" {
 # ALB
 ########################################
 resource "aws_lb" "alb" {
-  name               = "my-alb"
-  load_balancer_type = "application"
-  security_groups    = [var.alb_sg_id]
-  subnets            = var.subnet_ids
+  name                       = "my-alb"
+  load_balancer_type         = "application"
+  security_groups            = [var.alb_sg_id]
+  subnets                    = var.subnet_ids
+  drop_invalid_header_fields = true
 }
 
 ########################################

@@ -19,5 +19,5 @@ module "compute" {
   ecs_sg_id = module.security.ecs_sg_id
   alb_sg_id = module.security.alb_sg_id
 
-  ecr_image = var.ecr_image     # ✅ ONLY REQUIRED INPUT
+  ecr_image  = var.ecr_image
 }

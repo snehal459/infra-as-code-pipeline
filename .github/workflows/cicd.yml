@@ -119,8 +119,9 @@ jobs:
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --region ${{ env.AWS_REGION }} \
             --force-new-deployment
 
 
@@ -144,15 +145,17 @@ jobs:
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --region ${{ env.AWS_REGION }} \
             --force-new-deployment
 
       - name: Wait for ECS stability
         run: |
           aws ecs wait services-stable \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --region ${{ env.AWS_REGION }}
 
 
 # =========================
@@ -178,6 +181,7 @@ jobs:
             --family-prefix my-task \
             --sort DESC \
             --max-items 2 \
+            --region ${{ env.AWS_REGION }} \
             --query "taskDefinitionArns[1]" \
             --output text)
 
@@ -187,7 +191,8 @@ jobs:
           fi
 
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
             --task-definition $PREV \
+            --region ${{ env.AWS_REGION }} \
             --force-new-deployment

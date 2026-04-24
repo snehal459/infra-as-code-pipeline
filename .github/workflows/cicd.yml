@@ -167,6 +167,7 @@ jobs:
 
       - name: Wait for ECS stability
         run: |
+          sleep 30
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \

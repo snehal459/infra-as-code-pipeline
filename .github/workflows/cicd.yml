@@ -9,7 +9,7 @@ on:
 env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: my-app-repo
-  ECS_CLUSTER: my-ecs-cluster
+  ECS_CLUSTER: my-cluster
   ECS_SERVICE: my-service
 
 jobs:

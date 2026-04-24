@@ -2,9 +2,9 @@ name: CI CD Pipeline
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   AWS_REGION: ap-south-1
@@ -27,12 +27,17 @@ jobs:
         working-directory: terraform/envs/dev
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - run: terraform init
-      - run: terraform validate
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
 
       - name: Install TFLint
         run: |
@@ -51,30 +56,31 @@ jobs:
     needs: terraform-lint
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Configure AWS
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login ECR
-        id: ecr
+      - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Image
+      - name: Build Docker image
         run: docker build -t $ECR_REPOSITORY:latest ./app
 
-      - name: Tag Image
+      - name: Tag Docker image
         run: |
           docker tag $ECR_REPOSITORY:latest \
-          ${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
 
-      - name: Push Image
+      - name: Push Docker image
         run: |
-          docker push ${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
 
 
 # =========================
@@ -87,17 +93,19 @@ jobs:
     if: github.event_name == 'pull_request'
 
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - run: |
+      - name: Deploy to ECS (Staging)
+        run: |
           aws ecs update-service \
-          --cluster $ECS_CLUSTER \
-          --service $ECS_SERVICE \
-          --force-new-deployment
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment
 
 
 # =========================
@@ -113,28 +121,29 @@ jobs:
       name: production
 
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy ECS
+      - name: Deploy to ECS
         run: |
           aws ecs update-service \
-          --cluster $ECS_CLUSTER \
-          --service $ECS_SERVICE \
-          --force-new-deployment
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment
 
-      - name: Wait for stability
+      - name: Wait for service stability
         run: |
           aws ecs wait services-stable \
-          --cluster $ECS_CLUSTER \
-          --services $ECS_SERVICE
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE
 
 
 # =========================
-# ROLLBACK IF FAILURE
+# ROLLBACK ON FAILURE
 # =========================
   rollback:
     name: Rollback on Failure
@@ -143,30 +152,31 @@ jobs:
     if: failure()
 
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Wait before rollback (health check window)
+      - name: Wait before rollback
         run: sleep 300
 
       - name: Get previous task definition
-        id: prev
         run: |
           PREV=$(aws ecs list-task-definitions \
-          --family-prefix my-task \
-          --sort DESC \
-          --max-items 2 \
-          --query "taskDefinitionArns[1]" \
-          --output text)
+            --family-prefix my-task \
+            --sort DESC \
+            --max-items 2 \
+            --query "taskDefinitionArns[1]" \
+            --output text)
+
           echo "PREV_TASK=$PREV" >> $GITHUB_ENV
 
-      - name: Rollback deployment
+      - name: Rollback ECS service
         run: |
           aws ecs update-service \
-          --cluster $ECS_CLUSTER \
-          --service $ECS_SERVICE \
-          --task-definition $PREV_TASK \
-          --force-new-deployment
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $PREV_TASK \
+            --force-new-deployment

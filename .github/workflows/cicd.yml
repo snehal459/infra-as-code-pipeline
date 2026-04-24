@@ -1,0 +1,172 @@
+name: CI CD Pipeline
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: my-app-repo
+  ECS_CLUSTER: my-ecs-cluster
+  ECS_SERVICE: my-service
+  CONTAINER_NAME: app
+
+jobs:
+
+# =========================
+# TERRAFORM LINT
+# =========================
+  terraform-lint:
+    name: Terraform Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init
+      - run: terraform validate
+
+      - name: Install TFLint
+        run: |
+          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+
+      - name: Run TFLint
+        run: tflint
+
+
+# =========================
+# BUILD & PUSH IMAGE
+# =========================
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: terraform-lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Image
+        run: docker build -t $ECR_REPOSITORY:latest ./app
+
+      - name: Tag Image
+        run: |
+          docker tag $ECR_REPOSITORY:latest \
+          ${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+
+      - name: Push Image
+        run: |
+          docker push ${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+
+
+# =========================
+# DEPLOY STAGING (PR)
+# =========================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: |
+          aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --force-new-deployment
+
+
+# =========================
+# DEPLOY PRODUCTION (MAIN)
+# =========================
+  deploy-prod:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+
+    environment:
+      name: production
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy ECS
+        run: |
+          aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --force-new-deployment
+
+      - name: Wait for stability
+        run: |
+          aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE
+
+
+# =========================
+# ROLLBACK IF FAILURE
+# =========================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: deploy-prod
+    if: failure()
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Wait before rollback (health check window)
+        run: sleep 300
+
+      - name: Get previous task definition
+        id: prev
+        run: |
+          PREV=$(aws ecs list-task-definitions \
+          --family-prefix my-task \
+          --sort DESC \
+          --max-items 2 \
+          --query "taskDefinitionArns[1]" \
+          --output text)
+          echo "PREV_TASK=$PREV" >> $GITHUB_ENV
+
+      - name: Rollback deployment
+        run: |
+          aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --task-definition $PREV_TASK \
+          --force-new-deployment

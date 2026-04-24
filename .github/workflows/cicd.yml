@@ -181,6 +181,11 @@ jobs:
             --query "taskDefinitionArns[1]" \
             --output text)
 
+          if [ "$PREV" == "None" ] || [ -z "$PREV" ]; then
+            echo "No previous task definition found, skipping rollback."
+            exit 0
+          fi
+
           aws ecs update-service \
             --cluster $ECS_CLUSTER \
             --service $ECS_SERVICE \

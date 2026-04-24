@@ -1,6 +1,7 @@
 # Terraform
 .terraform/
 *.tfstate
+*.tfstate.*
 *.tfstate.backup
 
 # AWS
@@ -11,6 +12,4 @@
 
 # OS files
 .DS_Store
-Thumbs.db.terraform/
-*.tfstate
-*.tfstate.*
+Thumbs.db
